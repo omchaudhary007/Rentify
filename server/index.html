@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="wclassth=device-wclassth, initial-scale=1.0" />
+    <title>Document</title>
+    <style>
+      form{
+        padding: 10px;
+        border: 2px solclass red;
+      }
+      h3{
+        font-size: 2rem;
+        font-weight: bold;
+        margin: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Generate-otp -->
+    <form action="http://localhost:8080/generateotp" method="post">
+      <h3>Generate-otp</h3>
+      Email: <br /><input type="email" name="email" />
+      <input type="submit">
+    </form>
+    <br><br><br>
+    <!-- Verify-otp -->
+
+    <form action="http://localhost:8080/verifyotp" method="post">
+      <h3>Verify-otp</h3>
+      Email: <br /><input type="email" name="email" />
+      <br><br>
+      OTP: <br> <input type="text" name="otp">
+      <input type="submit">
+    </form>
+    <br><br><br>
+
+    <!-- Login-form -->
+
+    <form action="http://localhost:8080/user/login" method="post">
+      <h3>Login Form</h3>
+      Email: <br /><input type="email" name="email" />
+      <br><br>
+       password: <br /><input
+        type="text"
+        name="password"
+      />
+      <input type="submit">
+    </form>
+    <br><br><br>
+    
+    <!-- KYC-form -->
+    <form action="http://localhost:8080/categories/create" method="post" enctype="multipart/form-data" >
+      <h3>category Form</h3>
+      Document Type:
+       Name: <input type="text" name="categoryName">
+       Image: <input type="file" name="images" class="categoryImage">
+       <input type="file" name="images" class="categoryImage">
+       <input type="file" name="images" class="categoryImage">
+       <input type="file" name="images" class="categoryImage">
+       <input type="file" name="images" class="categoryImage">
+      <input type="submit">
+    </form>
+    <br><br><br>
+    
+    <!-- User-Profile -->
+     <form action="http://localhost:8080/user/profile">
+        <h3>User Profile</h3>
+        <button>Show Data</button>
+     </form>
+  </body>
+</html>
