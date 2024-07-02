@@ -1,26 +1,186 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f7f6f2;
+  --foreground: #101311;
+  --card: #ffffff;
+  --card-foreground: #101311;
+  --popover: #ffffff;
+  --popover-foreground: #101311;
+  --primary: #0e5a46;
+  --primary-foreground: #f5fff9;
+  --secondary: #edf1ea;
+  --secondary-foreground: #17201b;
+  --muted: #efeee8;
+  --muted-foreground: #68736c;
+  --accent: #d9ff57;
+  --accent-foreground: #14210f;
+  --destructive: #c9342b;
+  --destructive-foreground: #fff7f6;
+  --border: #e1e0d8;
+  --input: #e1e0d8;
+  --ring: #0e5a46;
+  --success: #188a5b;
+  --warning: #b7791f;
+  --info: #2f6fed;
+  --radius: 1rem;
+}
+
+.dark {
+  --background: #0b0f0d;
+  --foreground: #f2f5f1;
+  --card: #121815;
+  --card-foreground: #f2f5f1;
+  --popover: #16201a;
+  --popover-foreground: #f2f5f1;
+  --primary: #6fd6b5;
+  --primary-foreground: #062019;
+  --secondary: #1a231e;
+  --secondary-foreground: #e8efe9;
+  --muted: #1a231e;
+  --muted-foreground: #9aa69e;
+  --accent: #d9ff57;
+  --accent-foreground: #14210f;
+  --destructive: #ff6b61;
+  --destructive-foreground: #1a0604;
+  --border: #26312a;
+  --input: #26312a;
+  --ring: #6fd6b5;
+  --success: #5bd6a2;
+  --warning: #f2c66d;
+  --info: #7ca9ff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-instrument-serif);
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 8px);
+  --radius-input: 10px;
+  --radius-card: 16px;
+  --radius-panel: 24px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgb(16 19 17 / 0.04), 0 8px 24px -12px rgb(16 19 17 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(16 19 17 / 0.05), 0 24px 48px -24px rgb(16 19 17 / 0.22);
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "ss01" 1;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply text-balance;
+  }
+
+  p {
+    @apply text-pretty;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .container-page {
+    @apply mx-auto w-full max-w-[1240px] px-5 sm:px-6 lg:px-8;
+  }
+
+  .section-space {
+    @apply py-16 md:py-24;
+  }
+
+  .font-display {
+    font-family: var(--font-instrument-serif), Georgia, serif;
+    font-style: italic;
+    font-weight: 400;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .text-caption {
+    @apply text-xs font-medium uppercase tracking-[0.02em];
+  }
+
+  .skip-link {
+    @apply fixed top-3 left-3 z-[100] -translate-y-24 rounded-input bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-transform focus:translate-y-0;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
