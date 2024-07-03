@@ -1,7 +1,7 @@
 export default function Home() {
   return (
-    <main className="flex min-h-dvh items-center justify-center p-6">
+    <div className="container-page section-space">
       <p className="text-sm text-muted-foreground">Rentify foundation is ready.</p>
-    </main>
+    </div>
   );
 }

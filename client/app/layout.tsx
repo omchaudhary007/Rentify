@@ -56,6 +56,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} min-h-dvh antialiased`}
       >
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
         <AppProviders>{children}</AppProviders>
       </body>
     </html>
