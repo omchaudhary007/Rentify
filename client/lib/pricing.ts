@@ -86,3 +86,39 @@ export function formatEffectiveMonthly(total: number, months: number): string {
   if (!Number.isFinite(total) || months <= 0) return "—";
   return String(Math.round(total / months));
 }
+
+export interface RentalPlanOption {
+  key: RentalPlanKey;
+  label: string;
+  short: string;
+  months: number;
+  rent: number;
+  total: number;
+  effectiveMonthly: number;
+  percent: number | null;
+}
+
+export function buildRentalPlans(
+  price: number,
+  subcategory: PlanPercentSource | undefined,
+  options?: { dimensions?: Dimensions; includeDelivery?: boolean },
+): RentalPlanOption[] {
+  const includeDelivery = options?.includeDelivery ?? true;
+  const delivery = options?.dimensions ? calculateDeliveryCharge(options.dimensions) : 0;
+
+  return RENTAL_PLANS.map((plan) => {
+    const percent = getPlanPercent(subcategory, plan.key);
+    const rent = percent === null ? 0 : calculateRent(price, percent);
+    const total = percent === null ? 0 : rent + (includeDelivery ? 2 * delivery : 0);
+    return {
+      key: plan.key,
+      label: plan.label,
+      short: plan.short,
+      months: plan.months,
+      rent,
+      total,
+      effectiveMonthly: percent === null ? 0 : Math.round(total / plan.months),
+      percent,
+    };
+  });
+}
