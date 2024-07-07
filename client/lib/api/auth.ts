@@ -1,5 +1,5 @@
 import type { AuthResponse, ProfileResponse } from "@/types/api";
-import type { Role, User } from "@/types/user";
+import type { CloudinaryImage, Role, User } from "@/types/user";
 
 import { api } from "./client";
 
@@ -58,13 +58,13 @@ export async function updateProfile(input: ProfileUpdateInput): Promise<User> {
   return data.user;
 }
 
-export async function updateProfilePicture(file: File): Promise<{ url: string | null }> {
+export async function updateProfilePicture(file: File): Promise<CloudinaryImage> {
   const form = new FormData();
   form.append("image", file);
   const { data } = await api.patch<{
     success: boolean;
     message: string;
-    profilePic: { public_id: string | null; url: string | null };
+    profilePic: CloudinaryImage;
   }>("/user/profile/picture", form);
   return data.profilePic;
 }
