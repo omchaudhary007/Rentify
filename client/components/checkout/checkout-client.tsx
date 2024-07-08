@@ -1,8 +1,8 @@
 "use client";
 
 import {
+  AlertTriangle,
   ArrowLeft,
-  CheckCircle2,
   Info,
   Lock,
   MapPin,
@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { PlanSelector } from "@/components/products/plan-selector";
@@ -25,20 +25,34 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCreateOrder } from "@/hooks/mutations/use-create-order";
+import { useVerifyPayment } from "@/hooks/mutations/use-verify-payment";
 import { useProduct, useSubcategories } from "@/hooks/queries/use-catalog";
 import { getApiErrorMessage, getApiStatus } from "@/lib/api/errors";
 import { formatINR, formatDuration, truncateId } from "@/lib/format";
+import { orderTotal } from "@/lib/orders";
 import {
   buildRentalPlans,
   calculateDeliveryCharge,
   isRentalPlanKey,
   type RentalPlanKey,
 } from "@/lib/pricing";
+import { getRazorpayKey, isRazorpayConfigured } from "@/lib/razorpay";
 import { useAuth } from "@/providers/auth-provider";
 import type { Order } from "@/types/order";
+import type { RazorpayOptions, RazorpayPaymentResponse } from "@/types/razorpay";
 
 const CHECKOUT_FALLBACK =
   "Checkout is temporarily unavailable. Your selection is saved. Please try again later.";
+const PAYMENT_LOAD_FALLBACK =
+  "The secure payment window could not load. Check your connection and try again.";
+const VERIFY_FALLBACK =
+  "We could not verify your payment. No payment success has been recorded. If money was deducted, contact support with your order id.";
+
+interface PendingPayment {
+  order: Order;
+  paymentOrderId: string;
+  amountPaise: number;
+}
 
 export function CheckoutClient({ productId }: { productId: string }) {
   const router = useRouter();
@@ -47,8 +61,16 @@ export function CheckoutClient({ productId }: { productId: string }) {
   const productQuery = useProduct(productId);
   const subcategoriesQuery = useSubcategories();
   const createOrder = useCreateOrder();
+  const verifyPayment = useVerifyPayment();
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [lastPaymentResponse, setLastPaymentResponse] =
+    useState<RazorpayPaymentResponse | null>(null);
+  const handlerFiredRef = useRef(false);
+
 
   const planParam = searchParams.get("plan");
   const planKey: RentalPlanKey = isRentalPlanKey(planParam) ? planParam : "monthPercent";
@@ -114,35 +136,153 @@ export function CheckoutClient({ productId }: { productId: string }) {
       address?.country,
   );
 
-  const disabledReason = product.outofStock
-    ? "This rental is currently unavailable."
-    : !hasAddress
-      ? "Add a delivery address before checking out."
-      : !pricingReady
-        ? "Rental plans are still loading."
-        : !hasPricing
-          ? "Plan pricing is unavailable for this category."
-          : null;
+  const razorpayConfigured = isRazorpayConfigured();
+  const amountInvalid = pendingPayment !== null && !(pendingPayment.amountPaise > 0);
+
+  const disabledReason = !razorpayConfigured
+    ? "Online payment is not configured. Add NEXT_PUBLIC_RAZORPAY_KEY_ID to enable checkout."
+    : product.outofStock
+      ? "This rental is currently unavailable."
+      : !hasAddress
+        ? "Add a delivery address before checking out."
+        : !pricingReady
+          ? "Rental plans are still loading."
+          : !hasPricing
+            ? "Plan pricing is unavailable for this category."
+            : amountInvalid
+              ? "The payment amount for this order is invalid. Do not create another order."
+              : null;
 
   const canContinue =
-    !disabledReason && !createOrder.isPending && !createdOrder;
+    !disabledReason &&
+    !createOrder.isPending &&
+    !paymentLoading &&
+    !verifying;
 
   const handlePlanChange = (nextPlan: RentalPlanKey) => {
-    if (createdOrder || createOrder.isPending) return;
+    if (pendingPayment || createOrder.isPending) return;
     const params = new URLSearchParams(searchParams.toString());
     params.set("plan", nextPlan);
     router.replace(`/checkout/${productId}?${params.toString()}`, { scroll: false });
   };
 
+  const runVerification = async (
+    context: PendingPayment,
+    response: RazorpayPaymentResponse,
+  ) => {
+    setVerifying(true);
+    setPaymentError(null);
+    setLastPaymentResponse(response);
+
+    try {
+      await verifyPayment.mutateAsync({
+        orderId: context.order._id,
+        payload: response,
+      });
+      toast.success("Payment successful.");
+      router.push(`/account/orders/${context.order._id}?payment=success`);
+    } catch (error) {
+      const status = getApiStatus(error);
+      setPaymentError(
+        status && status >= 500
+          ? VERIFY_FALLBACK
+          : getApiErrorMessage(error, VERIFY_FALLBACK),
+      );
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const openRazorpay = async (context: PendingPayment) => {
+    setPaymentError(null);
+    setPaymentLoading(true);
+    handlerFiredRef.current = false;
+
+    let loaded = false;
+    try {
+      const { loadRazorpay } = await import("@/lib/razorpay");
+      loaded = await loadRazorpay();
+    } catch {
+      loaded = false;
+    }
+
+    if (!loaded || !window.Razorpay) {
+      setPaymentLoading(false);
+      setPaymentError(PAYMENT_LOAD_FALLBACK);
+      return;
+    }
+
+    const options: RazorpayOptions = {
+      key: getRazorpayKey(),
+      amount: context.amountPaise,
+      currency: "INR",
+      name: "Rentify",
+      description: product.productname,
+      order_id: context.paymentOrderId,
+      prefill: {
+        name: user.name,
+        email: user.email,
+        contact: user.phone,
+      },
+      theme: { color: "#0E5A46" },
+      handler: (response) => {
+        handlerFiredRef.current = true;
+        void runVerification(context, response);
+      },
+      modal: {
+        ondismiss: () => {
+          if (handlerFiredRef.current) return;
+          toast("Payment not completed. Your order is saved as payment pending.");
+          router.push(`/account/orders/${context.order._id}?payment=pending`);
+        },
+      },
+    };
+
+    try {
+      const instance = new window.Razorpay(options);
+      instance.on("payment.failed", (response) => {
+        const description = response.error?.description;
+        toast.error(
+          description
+            ? `Payment failed: ${description}`
+            : "Payment failed. Please try again.",
+        );
+      });
+      instance.open();
+    } catch {
+      setPaymentError(PAYMENT_LOAD_FALLBACK);
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
   const handleContinue = () => {
     if (!canContinue) return;
     setCheckoutError(null);
+
+    if (pendingPayment) {
+      void openRazorpay(pendingPayment);
+      return;
+    }
+
     createOrder.mutate(
       { productId, planKey },
       {
-        onSuccess: ({ order }) => {
-          setCreatedOrder(order);
-          toast.success("Order created. Payment setup is next.");
+        onSuccess: ({ order, paymentOrderId }) => {
+          const amountPaise = Math.round(orderTotal(order) * 100);
+          const context: PendingPayment = { order, paymentOrderId, amountPaise };
+          setPendingPayment(context);
+
+          if (!(amountPaise > 0) || !Number.isFinite(amountPaise)) {
+            setPaymentError(
+              "The order was created, but its payment amount could not be calculated. Please do not pay again. Contact support with the order id below.",
+            );
+            toast.error("Order created, but the payment amount is invalid.");
+            return;
+          }
+
+          toast.success("Order created. Opening secure payment.");
+          void openRazorpay(context);
         },
         onError: (error) => {
           const status = getApiStatus(error);
@@ -155,6 +295,12 @@ export function CheckoutClient({ productId }: { productId: string }) {
       },
     );
   };
+
+  const handleRetryVerification = () => {
+    if (!pendingPayment || !lastPaymentResponse || verifying) return;
+    void runVerification(pendingPayment, lastPaymentResponse);
+  };
+
 
   return (
     <div className="container-page pb-32 pt-6 md:py-10 lg:pb-12">
@@ -201,7 +347,7 @@ export function CheckoutClient({ productId }: { productId: string }) {
                   plans={plans}
                   selected={planKey}
                   onSelect={handlePlanChange}
-                  disabled={product.outofStock || Boolean(createdOrder)}
+                  disabled={product.outofStock || Boolean(pendingPayment)}
                 />
               )}
             </div>
@@ -320,6 +466,36 @@ export function CheckoutClient({ productId }: { productId: string }) {
               <p className="mt-1 leading-6">{checkoutError}</p>
             </div>
           ) : null}
+
+          {paymentError ? (
+            <div
+              role="alert"
+              className="rounded-card border border-destructive/25 bg-destructive/5 p-4 text-sm"
+            >
+              <p className="flex items-center gap-2 font-medium text-destructive">
+                <AlertTriangle aria-hidden="true" className="size-4" />
+                Payment not completed
+              </p>
+              <p className="mt-1 leading-6 text-muted-foreground">{paymentError}</p>
+              {pendingPayment ? (
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  Order reference: #{truncateId(pendingPayment.order._id)}
+                </p>
+              ) : null}
+              {lastPaymentResponse && pendingPayment ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={handleRetryVerification}
+                  disabled={verifying}
+                >
+                  {verifying ? "Verifying…" : "Retry verification"}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="lg:col-span-5">
@@ -363,18 +539,35 @@ export function CheckoutClient({ productId }: { productId: string }) {
                 </div>
               </div>
 
-              {createdOrder ? (
+              {pendingPayment ? (
                 <div
                   role="status"
-                  className="mt-5 rounded-card border border-success/25 bg-success/8 p-4 text-sm"
+                  className="mt-5 rounded-card border border-warning/25 bg-warning/8 p-4 text-sm"
                 >
-                  <p className="flex items-center gap-2 font-medium text-success">
-                    <CheckCircle2 aria-hidden="true" className="size-4" />
+                  <p className="flex items-center gap-2 font-medium text-warning">
+                    <AlertTriangle aria-hidden="true" className="size-4" />
                     Order saved as payment pending
                   </p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Order #{truncateId(createdOrder._id)} was created. No payment has been taken.
-                    Payment setup is next.
+                    Order #{truncateId(pendingPayment.order._id)} was created. No payment has
+                    been taken yet. Complete payment in the Razorpay window to confirm your
+                    rental.
+                  </p>
+                </div>
+              ) : null}
+
+              {!razorpayConfigured ? (
+                <div
+                  role="alert"
+                  className="mt-5 rounded-card border border-destructive/25 bg-destructive/5 p-4 text-sm"
+                >
+                  <p className="flex items-center gap-2 font-medium text-destructive">
+                    <AlertTriangle aria-hidden="true" className="size-4" />
+                    Online payment is not configured
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Add NEXT_PUBLIC_RAZORPAY_KEY_ID to the environment to enable checkout.
+                    No order will be created until payment is configured.
                   </p>
                 </div>
               ) : null}
@@ -386,13 +579,17 @@ export function CheckoutClient({ productId }: { productId: string }) {
                 onClick={handleContinue}
                 disabled={!canContinue}
               >
-                {createdOrder
-                  ? "Payment setup next"
-                  : createOrder.isPending
-                    ? "Creating order…"
-                    : disabledReason
-                      ? disabledReason
-                      : "Continue to payment"}
+                {verifying
+                  ? "Verifying payment…"
+                  : paymentLoading
+                    ? "Opening payment…"
+                    : createOrder.isPending
+                      ? "Creating order…"
+                      : pendingPayment
+                        ? paymentError
+                          ? "Retry payment"
+                          : "Complete payment"
+                        : "Continue to payment"}
               </Button>
 
               {disabledReason ? (
@@ -433,11 +630,15 @@ export function CheckoutClient({ productId }: { productId: string }) {
             disabled={!canContinue}
             className="shrink-0"
           >
-            {createdOrder
-              ? "Payment setup next"
-              : createOrder.isPending
-                ? "Creating…"
-                : "Continue"}
+            {verifying
+              ? "Verifying…"
+              : paymentLoading
+                ? "Opening…"
+                : createOrder.isPending
+                  ? "Creating…"
+                  : pendingPayment
+                    ? "Pay now"
+                    : "Continue"}
           </Button>
         </div>
       </div>
