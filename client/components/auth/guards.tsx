@@ -40,17 +40,24 @@ export function RequireRole({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, isLoading } = useAuth();
   const allowed = user ? roles.includes(user.role) : false;
 
   useEffect(() => {
-    if (!isLoading && user && !allowed) {
+    if (isLoading) return;
+    if (!user) {
+      const next = `${pathname}${window.location.search}`;
+      router.replace(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
+    if (!allowed) {
       router.replace("/unauthorized");
     }
-  }, [allowed, isLoading, router, user]);
+  }, [allowed, isLoading, pathname, router, user]);
 
   if (isLoading) return <AuthLoading />;
-  if (!user) return null;
+  if (!user) return <AuthLoading />;
   if (!allowed) return <AuthLoading />;
   return <>{children}</>;
 }
